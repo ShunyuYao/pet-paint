@@ -1,0 +1,13 @@
+{
+  "file": "dist/桌宠颜料大作战.html",
+  "bytes": 699196,
+  "sha256": "44c6f1fc93da93aff041ee655eeabbf4a8dab38b9636999606078bdc35a0d2ee",
+  "version": "0.1.0",
+  "protocol": {
+    "id": "pet-paint",
+    "version": 1
+  },
+  "esbuild": "0.28.1",
+  "three": "0.164.1",
+  "cannon": "0.20.0"
+}

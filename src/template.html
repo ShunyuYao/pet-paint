@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>桌宠颜料大作战</title>
+  <script type="application/json" id="pet-sdk">{"version":2,"permissions":["character:read","character:watch","sessions:connect"],"network":["lan"],"interaction":{"players":4,"transport":"lan","protocol":{"id":"pet-paint","version":1}}}</script>
+  <style>__STYLE__</style>
+</head>
+<body>
+  <canvas id="stage" aria-label="对战场地"></canvas>
+
+  <header class="topbar">
+    <div class="brand"><span class="dot a"></span><span class="dot b"></span><strong>桌宠颜料大作战</strong><span id="conn" class="conn" role="status" hidden></span></div>
+    <div class="tools">
+      <button id="keys-btn" class="pill" type="button" aria-expanded="false">键位</button>
+      <button id="sfx" class="pill" type="button" aria-pressed="true">音效 开</button>
+      <button id="leave" class="pill ghost" type="button" hidden>离开</button>
+    </div>
+  </header>
+  <div id="error" class="error" role="alert" hidden></div>
+  <div id="banner" class="banner" role="status" hidden></div>
+
+  <section id="hud" class="hud" hidden aria-label="对战信息">
+    <div class="scorebar">
+      <div class="team a"><span id="cov-a">0%</span></div>
+      <div id="timer" class="timer">2:00</div>
+      <div class="team b"><span id="cov-b">0%</span></div>
+      <div class="bar"><i id="bar-a"></i><i id="bar-b"></i></div>
+    </div>
+    <div class="me-panel">
+      <div class="gauge"><small>墨量</small><div class="track"><i id="ink"></i></div></div>
+      <div class="gauge"><small>生命</small><div class="track hp"><i id="hp"></i></div></div>
+    </div>
+    <canvas id="minimap" width="224" height="144" aria-label="小地图"></canvas>
+    <ol id="feed" class="feed" aria-live="polite"></ol>
+  </section>
+  <div id="announce" class="announce" hidden aria-live="assertive"></div>
+  <div id="respawn" class="respawn" hidden></div>
+  <div id="crosshair" class="crosshair" hidden aria-hidden="true"></div>
+
+  <div id="menu" class="menu">
+    <section id="title-panel" class="panel" aria-labelledby="title-h">
+      <div class="eyebrow">DESK PAINT PARTY</div>
+      <h1 id="title-h">用颜料抢下整张书桌</h1>
+      <p class="lede">两队各自往桌面上涂颜料，2 分钟后涂得多的一队赢。在自己的颜料里按住 Shift 潜进去：游得快、回墨快。</p>
+      <div class="fighter-card">
+        <div id="fighter-portrait" class="portrait" aria-hidden="true">🐭</div>
+        <div class="fighter-info"><small>出战形象</small><strong id="fighter-name">…</strong><span id="fighter-kind" class="kind-tag"></span></div>
+      </div>
+      <div id="grant-box" class="grant-box" hidden><p id="grant-text"></p><button id="grant-retry" class="chip" type="button">重新请求授权</button></div>
+      <p id="pet-auto" class="pet-auto" hidden></p>
+      <div class="field-label">武器</div>
+      <div id="weapon-list" class="weapons" role="radiogroup" aria-label="武器">
+        <button class="weapon-card" type="button" role="radio" aria-checked="true" data-weapon="sprayer"><strong>喷壶</strong><small>连射 · 中距离 · 3 发打倒</small></button>
+        <button class="weapon-card" type="button" role="radio" aria-checked="false" data-weapon="roller"><strong>滚刷</strong><small>按住推着刷 · 点一下往前甩</small></button>
+      </div>
+      <details id="swap" class="import">
+        <summary>换个形象（可选）</summary>
+        <div class="import-row">
+          <button id="use-pet" class="chip" type="button" hidden>用当前桌宠</button>
+          <label class="chip file">导入角色包 / 图片<input id="import-file" type="file" accept=".zip,image/png,image/webp,image/jpeg,image/gif"></label>
+          <label class="chip file">导入角色文件夹<input id="import-folder" type="file" webkitdirectory></label>
+        </div>
+        <div id="toy-row" class="import-row toys"><small>内置形象：</small></div>
+      </details>
+      <p id="import-status" class="import-status" role="status"></p>
+      <div class="opts">
+        <div><div class="field-label">人数</div><div id="size-list" class="chips"></div></div>
+        <div><div class="field-label">电脑难度</div><div id="cpu-list" class="chips"></div></div>
+        <div><div class="field-label">时长</div><div id="time-list" class="chips"></div></div>
+      </div>
+      <button id="solo" class="primary" type="button">单人练习 · 和电脑对战</button>
+      <p id="env-note" class="note"></p>
+    </section>
+
+    <section id="lobby-panel" class="panel" hidden aria-labelledby="lobby-title">
+      <div class="eyebrow">LOBBY</div>
+      <h2 id="lobby-title">联机大厅</h2>
+      <div id="lobby-teams" class="lobby-teams"></div>
+      <div class="field-label">我的武器</div>
+      <div id="lobby-weapon" class="chips"></div>
+      <div class="field-label">我的队伍</div>
+      <div id="lobby-team" class="chips"></div>
+      <div class="field-label">时长 <small id="time-hint"></small></div>
+      <div id="lobby-time" class="chips"></div>
+      <button id="ready" class="primary" type="button">我准备好了</button>
+      <p id="lobby-note" class="note"></p>
+    </section>
+
+    <section id="results-panel" class="panel" hidden aria-labelledby="results-title">
+      <div class="eyebrow">RESULT</div>
+      <h2 id="results-title">胜负已分</h2>
+      <div class="result-bar"><i id="res-a"></i><i id="res-b"></i></div>
+      <div class="result-nums"><span id="res-na"></span><span id="res-nb"></span></div>
+      <div id="results-players" class="results"></div>
+      <button id="again" class="primary" type="button">再来一局</button>
+      <button id="to-title" class="chip" type="button">回到开始</button>
+      <p id="results-note" class="note"></p>
+    </section>
+  </div>
+
+  <aside id="keys-panel" class="keys-panel" hidden aria-label="键位说明">
+    <h3>键位</h3>
+    <table>
+      <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>移动</td></tr>
+      <tr><td>鼠标</td><td>瞄准</td></tr>
+      <tr><td>左键（按住）</td><td>开火；滚刷按住推、点一下甩</td></tr>
+      <tr><td><kbd>Shift</kbd> 或右键</td><td>在自己的颜料里潜行</td></tr>
+      <tr><td><kbd>J</kbd></td><td>开火（键盘）</td></tr>
+      <tr><td><kbd>P</kbd></td><td>显示 / 隐藏键位</td></tr>
+    </table>
+    <p class="keys-tips">Esc 会直接关掉游戏窗口，想离开请点右上角「离开」。</p>
+  </aside>
+  <div class="drop-hint" aria-hidden="true">松手导入形象</div>
+  <script>__SCRIPT__</script>
+</body>
+</html>
