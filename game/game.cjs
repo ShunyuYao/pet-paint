@@ -44,6 +44,9 @@ function queue(g,e){g.out.push(e);}
 function actor(g,slot){return g.world.actors.find(a=>a.slot===slot);}
 // Handle one event that changes shared state (locally produced or received).
 function handle(g,e,local){
+  // judge is the bounded grace window. After settlement, late network paint
+  // cannot change the floor underneath the published result.
+  if(g.match.phase==='results'&&(e.type==='splat'||e.type==='fire'))return;
   const w=g.world;
   switch(e.type){
     case 'splat':if(!local)Sim.applySplat(w,e);break;

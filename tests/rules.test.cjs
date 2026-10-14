@@ -147,3 +147,16 @@ test('a 2v2 match of computer players paints the floor and nobody stays stuck',(
   for(const a of g.world.actors){const s=start.get(a.slot);assert.ok(Math.hypot(a.x-s.x,a.z-s.z)>3||!a.alive,'bot '+a.slot+' left spawn');}
   run(g,34,{});assert.equal(g.match.phase,'results');
 });
+
+test('settled results cannot be changed by a late network splat',()=>{
+ const g=duel({duration:60});run(g,64,{});assert.equal(g.match.phase,'results');
+ const result=structuredClone(g.match.result),before=Paint.hash(g.world.paint);
+ Game.receive(g,[{type:'splat',kind:'band',x:6,z:0,dx:1,dz:0,w:3,l:3,team:1,t:999999,slot:1}]);
+ assert.equal(Paint.hash(g.world.paint),before,'late paint must not alter the settled floor');assert.deepEqual(g.match.result,result);
+});
+
+test('in-flight paint still counts during the settlement grace window',()=>{
+ const g=duel({duration:60});run(g,60,{});assert.equal(g.match.phase,'judge');const before=Paint.hash(g.world.paint);
+ Game.receive(g,[{type:'splat',kind:'band',x:6,z:0,dx:1,dz:0,w:3,l:3,team:1,t:60000,slot:1}]);
+ assert.notEqual(Paint.hash(g.world.paint),before);run(g,3,{});assert.equal(g.match.result.hash,Paint.hash(g.world.paint));
+});

@@ -26,7 +26,8 @@ function player(sdk,name,{weapon='sprayer',team=null,seed=1}={}){
 
 test('host + 2 guests: lobby → 2v2 with a computer player → same turf everywhere',{timeout:60000},async()=>{
   const hub=createHub({latency:[5,45],loss:0.03});
-  const H=player(hub.host(),'房主',{seed:1}),A=player(hub.guest(),'客人甲',{seed:2,weapon:'roller'}),B=player(hub.guest(),'客人乙',{seed:3});
+  const packets=[];const spy=(sdk,label)=>({...sdk,send:async m=>{packets.push({label,m:structuredClone(m)});return sdk.send(m);}});
+  const H=player(spy(hub.host(),'H'),'房主',{seed:1}),A=player(spy(hub.guest(),'A'),'客人甲',{seed:2,weapon:'roller'}),B=player(spy(hub.guest(),'B'),'客人乙',{seed:3});
   const all=[H,A,B];
   try{
     await H.start();await A.start();await B.start();
@@ -44,6 +45,8 @@ test('host + 2 guests: lobby → 2v2 with a computer player → same turf everyw
     assert.equal(H.lan.game.roster.filter(r=>r.kind==='bot').length,1,'one computer player');
     assert.deepEqual(A.lan.game.roster.map(r=>r.slot),H.lan.game.roster.map(r=>r.slot),'guest sees the same roster');
     await waitFor(()=>all.every(p=>p.lan.phase()==='play'),'play',6000);
+    // Sampling must never feed delayed poses back into authoritative gameplay.
+    for(const p of all){const before=JSON.stringify(p.lan.game.world.actors);for(let n=0;n<10;n++)p.lan.drawActors();assert.equal(JSON.stringify(p.lan.game.world.actors),before,'draw leaves authority untouched');const own=p.lan.game.world.actors.find(a=>a.owner==='local'&&a.kind==='human');if(own)assert.deepEqual(p.lan.drawActors().find(a=>a.slot===own.slot),own,'local player is not interpolated');}
     // Everyone sees everyone else's shots in flight (ghost copies of remote fire events).
     const seen={H:new Set(),A:new Set(),B:new Set()};
     for(let i=0;i<60;i++){for(const [k,p] of [['H',H],['A',A],['B',B]])for(const s of p.lan.game.world.projectiles)if(s.ghost)seen[k].add(s.owner);await sleep(50);}
@@ -60,6 +63,9 @@ test('host + 2 guests: lobby → 2v2 with a computer player → same turf everyw
     const r=H.lan.result();assert.ok(r&&r.share[0]+r.share[1]>5,'turf painted: '+JSON.stringify(r?.share));
     const hostHash=Paint.hash(H.lan.game.world.paint);assert.equal(r.hash,hostHash);
     for(const g of [A,B]){assert.equal(Paint.hash(g.lan.game.world.paint),hostHash,g.name+' ends with the host\'s turf');assert.deepEqual(g.lan.result().share,r.share);}
+    const originals=new Map();for(const {m}of packets)if(m.type==='paint.up'&&m.payload.s)originals.set(m.payload.s[0]+':'+m.payload.mt,m.payload.s);
+    let forwarded=0;for(const {m}of packets)if(m.type==='paint.st')for(const pose of m.payload.a){const raw=originals.get(pose[0]+':'+m.payload.mt?.[pose[0]]);if(raw){assert.deepEqual(pose.slice(0,6),raw.slice(0,6),'forward original position and simulation timestamp together');forwarded++;}}
+    assert(forwarded>20,'original guest samples reach the third player without restamping');
     // Both guests' shots landed on the host (their events were received and applied).
     const byGuests=H.lan.game.world.actors.filter(a=>a.slot!==0&&a.kind==='human').length;assert.equal(byGuests,2);
     assert.equal(hub.stats.backpressure,0,'no channel went over 30 sends/s');

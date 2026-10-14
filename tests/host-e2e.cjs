@@ -21,12 +21,14 @@ const electron = require(path.join(HOST, 'demo/node_modules/electron'));
 const charIds = ['rat-doll-female', 'rat-doll-male'];
 const F = require(path.join(HOST, 'tests/helpers/lan-appearance-fixture'));
 const { activateButton, activateClosingButton } = require(path.join(HOST, 'tests/e2e/html-card-input'));
-const source = path.join(GAME, 'dist/桌宠颜料大作战.html');
+let source = path.join(GAME, 'dist/桌宠颜料大作战.html');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pet-plugin-appearance-peer-delivery-'));
 const runId = new Date().toISOString().replace(/[:.]/g, '-');
 const evidence = path.join(GAME, 'artifacts/host-e2e', runId);
 const bootstrap = path.join(H.REPO, 'tests/helpers/peer-session-delivery-bootstrap.js');
 const report = { runId, root, scope: 'Actual three hidden production hosts (room of host + 2 guests) over loopback UDP/TCP/TLS. OS keystore is test AES-GCM only; native Keychain and two physical machines are not covered.', checks: [], failures: [], screenshots: [], dialogs: [], sdkGrants: [], exceptions: [] };
+const motionAudit=process.argv.includes('--motion-audit');
+let mandatory;
 const apps = [], sockets = [];
 let runtime;
 const json = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2));
@@ -54,7 +56,7 @@ async function boot(label, discovery, peerDiscoveries) {
     crossScreen: { allowDirectVisits: true, requireVisitConfirmation: false },
     relay: { url: 'ws://127.0.0.1:1', paired: {} }, general: { autoCheckUpdates: false }, tts: { enabled: false },
     plugins: { developerMode: false, registrySources: ['http://127.0.0.1:1/registry.json'] } });
-  app.env = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, PET_USERDATA_DIR: app.profile,
+  app.env = { ...process.env,...(mandatory?.env||{}), ELECTRON_RUN_AS_NODE: undefined, PET_USERDATA_DIR: app.profile,
     PET_E2E_TEST: '1', PET_E2E_HIDDEN: '1', PET_E2E_BACKGROUND: '1', PET_DND_TRIGGER_COUNT: '999',
     PET_ACCOUNT_API_BASE: 'http://127.0.0.1:1', PET_ACTIVITY_BRIDGE_PORT: '0',
     PET_LAN_DISCOVERY_PORT: String(discovery), PET_LAN_DISCOVERY_TARGETS: [].concat(peerDiscoveries).map(p => '127.0.0.1:' + p).join(','),
@@ -66,6 +68,7 @@ async function launch(app) {
   app.run.native = path.join(evidence, app.run.label + '-native.jsonl'); fs.writeFileSync(app.run.native, '');
   app.child = spawn(electron, ['--require', bootstrap, runtime.demo, `--remote-debugging-port=${app.cdp}`, '--use-mock-keychain', '--mute-audio'], { cwd: runtime.demo, env: { ...app.env, PET_PUBLIC_NATIVE_LOG: app.run.native }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   app.run.pid = app.child.pid; app.child.log = ''; app.child.stdout.on('data', x => { app.child.log += x; }); app.child.stderr.on('data', x => { app.child.log += x; });
+  if(mandatory&&app.runs.length===1)await mandatory.login(app.cdp,'1997777666'+(app.label.charCodeAt(0)-96));
   app.pet = await H.findTarget(app.cdp, '/index.html');
   await wait(() => H.evalIn(app.pet, 'typeof currentCharKey==="string" && !!frames.idle?.[0]?.[0]?.naturalWidth'), 'real pet decoded ' + app.label);
   await wait(async () => (await H.evalIn(app.pet, H.CANVAS_PIXELS)) > 100, 'real pet painted ' + app.label);
@@ -202,7 +205,7 @@ async function inviteFromControls(a,c){
   assert.equal(hash(incoming.file.savedPath),hash(source));
   const receipt=await wait(async()=>{for(const page of (await targets(c)).filter(t=>t.url.includes('/dialog.html')))if(await H.evalIn(page,'!!document.querySelector("[data-work-open]")').catch(()=>false))return page;return null;},'work receipt on c');
   await activateClosingButton(c.cdp,receipt,'[data-work-open]');
-  await approvals(a,c);
+  await approvals(a,c,false);
   assert.equal(a.game.id,gameId);assert.equal(await H.evalIn(a.game,'performance.timeOrigin'),origin,'host game never reloaded');
   check('control-bar invite brings a third host into the open room without reloading the host game');
 }
@@ -264,13 +267,15 @@ async function paintPlay(a,b,c){
 (async()=>{
   fs.mkdirSync(evidence,{recursive:true});
   try{
-    H.requireNode22();assert(fs.existsSync(source),'build first');report.gameSha256=hash(source);
+    H.requireNode22();assert(fs.existsSync(source),'build first');mandatory=await require(path.join(HOST,'tests/helpers/mandatory-login-fixture')).createMandatoryLoginFixture();if(motionAudit){source=require('./remote-motion-audit.cjs').prepare(source,'paint',report);}report.gameSha256=hash(source);
     runtime=F.freeze(H.REPO,root,false);report.source=runtime.source;
     const ap=await F.freePort(),bp=await F.freePort(),cp=await F.freePort();
+    if(motionAudit){const a=await boot('a',ap,[bp]),b=await boot('b',bp,[ap]);await sendGame(a,b);await approvals(a,b,false);await require('./remote-motion-audit.cjs').run({kind:'paint',a,b,H,wait,state,activateButton,check,screenshot,json,evidence,report,closeWork});}else{
     const a=await boot('a',ap,[bp,cp]),b=await boot('b',bp,[ap,cp]),c=await boot('c',cp,[ap,bp]);
     for(const app of [a,b])await installAppearances(app);
     await applyMain(a,'rat-doll-male');await applyMain(b,'rat-doll-female');
-    await nearby(a,c);await sendGame(a,b);await approvals(a,b);await inviteFromControls(a,c);await paintPlay(a,b,c);
+    await nearby(a,c);await sendGame(a,b);await approvals(a,b,false);await inviteFromControls(a,c);await paintPlay(a,b,c);
+    }
   }catch(error){
     report.failures.push(error.message);report.error=error.stack;console.error(error);
     for(const app of apps){const list=await targets(app).catch(()=>[]);json(path.join(evidence,app.label+'-targets.json'),list.map(t=>({type:t.type,url:t.url,title:t.title})));
@@ -281,7 +286,7 @@ async function paintPlay(a,b,c){
       await screenshot(page,app.label+'-failure').catch(()=>{});
     }
   }finally{
-    for(const ws of sockets)ws.close();
+    if(mandatory)await mandatory.close();for(const ws of sockets)ws.close();
     for(const app of apps)await stop(app).catch(e=>report.failures.push('cleanup: '+e.message));
     if(report.exceptions.length)report.failures.push('uncaught renderer exceptions');
     report.ok=!report.failures.length;json(path.join(evidence,'report.json'),report);

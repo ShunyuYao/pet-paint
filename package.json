@@ -1,6 +1,6 @@
 {
   "name": "pet-paint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "description": "桌宠颜料大作战：2–4 只桌宠局域网颜料抢地盘的单文件 HTML，支持 2D / 3D 桌宠形象与单人对电脑",
@@ -10,7 +10,9 @@
     "test:net": "node --test tests/net.test.cjs",
     "test:browser": "node tests/browser-e2e.cjs",
     "test:host": "node tests/host-e2e.cjs",
-    "test": "npm run build && npm run test:rules && npm run test:net && npm run test:browser"
+    "test": "npm run build && npm run test:rules && npm run test:net && npm run test:browser",
+    "test:motion": "node tests/host-e2e.cjs --motion-audit",
+    "test:motion-suite": "npm run test:net && npm run test:motion"
   },
   "engines": {
     "node": ">=22"
