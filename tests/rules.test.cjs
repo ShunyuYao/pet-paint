@@ -160,3 +160,14 @@ test('in-flight paint still counts during the settlement grace window',()=>{
  Game.receive(g,[{type:'splat',kind:'band',x:6,z:0,dx:1,dz:0,w:3,l:3,team:1,t:60000,slot:1}]);
  assert.notEqual(Paint.hash(g.world.paint),before);run(g,3,{});assert.equal(g.match.result.hash,Paint.hash(g.world.paint));
 });
+
+test('terminal checkpoint repairs a provisional grid atomically and rejects corrupt bytes',()=>{
+ const authoritative=Paint.create(),guest=Paint.create();
+ Paint.apply(authoritative,{x:0,z:0,r:1,team:0,slot:0,t:100});
+ Paint.apply(guest,{x:0,z:0,r:1,team:1,slot:1,t:999999});
+ const data=Paint.encodeFinal(authoritative),expected=Paint.hash(authoritative),before=Paint.hash(guest);
+ assert(data.length<60*1024,'final owners fit one latest message');
+ assert.equal(Paint.applyFinal(guest,data,expected+1),false);assert.equal(Paint.hash(guest),before);
+ assert.equal(Paint.applyFinal(guest,'AA==',expected),false);assert.equal(Paint.hash(guest),before);
+ assert.equal(Paint.applyFinal(guest,data,expected),true);assert.equal(Paint.hash(guest),expected);
+});

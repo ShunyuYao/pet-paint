@@ -4,7 +4,7 @@
 // coalescing (same key within 30 ms keeps the newest), per-channel send budget (30/s per lane
 // → backpressure), ≤ 60 KB messages, one poll at a time, transfers ≤ 1 MB one at a time.
 // Latency and loss are configurable so healing paths are exercised.
-function createHub({latency=[5,40],loss=0,seed=7}={}){
+function createHub({latency=[5,40],loss=0,seed=7,dropMessage=()=>false}={}){
   let s=seed>>>0||1;const rnd=()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};
   const ends=new Map();let hostId=null,nextId=1,transfers=0;const stats={sent:0,dropped:0,coalesced:0,backpressure:0,maxBytes:0};
   function endpoint(role){
@@ -12,6 +12,7 @@ function createHub({latency=[5,40],loss=0,seed=7}={}){
     const e={id,role,q,push(ev){q.push(ev);if(waiter){const w=waiter;waiter=null;w();}}};ends.set(id,e);if(role==='host')hostId=id;
     const deliver=(toId,ev,key)=>{
       const target=ends.get(toId);if(!target)return;
+      if(ev.type==='message'&&dropMessage({from:id,to:toId,...ev.message})){stats.dropped++;return;}
       if(loss&&rnd()<loss){stats.dropped++;return;}
       const delay=latency[0]+rnd()*(latency[1]-latency[0]);
       if(key){const k=toId+'|'+key,prev=pendingKey.get(k);if(prev&&!prev.done){prev.ev=ev;stats.coalesced++;return;}
@@ -20,7 +21,7 @@ function createHub({latency=[5,40],loss=0,seed=7}={}){
     };
     const budget=toId=>{const t=Date.now(),w=window.get(toId)||[];while(w.length&&t-w[0]>=1000)w.shift();if(w.length>=30){stats.backpressure++;throw Error('backpressure');}w.push(t);window.set(toId,w);};
     const sdk={
-      async getContext(){return {invitationId:'inv-1',role,protocol:{id:'pet-paint',version:1},peer:{sessionPeerId:id}};},
+      async getContext(){return {invitationId:'inv-1',role,protocol:require('../game/net.js').PROTOCOL,peer:{sessionPeerId:id}};},
       async join(){joined=true;const others=role==='host'?[...ends.values()].filter(x=>x.role==='guest'):[ends.get(hostId)];
         if(role==='guest'){ends.get(hostId)?.push({type:'peer_joined',from:id});e.push({type:'connected',epoch:1});}
         return {status:'connected',epoch:1};},

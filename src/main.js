@@ -26,6 +26,8 @@ let sdk=window.pet||null,driver=null,petDriver=null,realtimeNote='';
 let session=null; // {kind:'solo'|'lan', game, ...}
 let mode='title';
 const peerAssets=new Map(); // signature → asset (LAN)
+// A peer may use the same character. The host skips sending our own asset back.
+const peerAsset=signature=>signature===driver?.profile.signature?driver.asset:peerAssets.get(signature);
 
 // ---------- UI helpers ----------
 let errorTimer=null,announceTimer=null;
@@ -111,7 +113,7 @@ function syncPlayers(){
     slots.add(r.slot);
     if(r.slot===g.mySlot&&driver){void world.setPlayer(r.slot,{signature:driver.profile.signature,asset:driver.asset,fallback:driver.fallback,name:r.name,team:r.team,weapon:r.weapon});continue;}
     if(r.kind==='bot'){const look=CPU_LOOKS[r.slot%CPU_LOOKS.length];void world.setPlayer(r.slot,{signature:'cpu:'+r.slot+look.species,asset:{kind:'toy',...look},name:r.name,team:r.team,weapon:r.weapon});continue;}
-    const asset=peerAssets.get(r.signature);
+    const asset=peerAsset(r.signature);
     void world.setPlayer(r.slot,{signature:asset?r.signature:'pending:'+r.signature,asset:asset||{kind:'toy',species:'mouse',color:r.team===0?'#f4a261':'#6c8cff'},name:r.name,team:r.team,weapon:r.weapon});
   }
   for(const p of world.info().players)if(!slots.has(p.slot))world.removePlayer(p.slot);
@@ -193,7 +195,7 @@ function renderMode(force){
 function renderLobby(){
   const lan=session?.lan;if(!lan)return;const L=lan.lobby(),me=L.players.find(p=>p.you);
   const seat=p=>{const d=document.createElement('div');d.className='seat'+(p.you?' you':'');
-    const mini=document.createElement('div');mini.className='mini';const a=p.you?driver?.asset:peerAssets.get(p.signature);
+    const mini=document.createElement('div');mini.className='mini';const a=p.you?driver?.asset:peerAsset(p.signature);
     portraitInto(mini,a?.kind==='sprite'?a.frames[0]:a?.kind==='doll3d'?a.head:p.you?driver?.portrait:null,'🐭');
     const n=document.createElement('strong');n.textContent=p.name+(p.you?'（我）':'');const w=document.createElement('small');w.textContent=Config.WEAPONS[p.weapon]?.name||'';
     const r=document.createElement('span');r.className=p.ready?'ok':'';r.textContent=p.slot===0?'房主':p.ready?'已准备':'';d.append(mini,n,w,r);return d;};

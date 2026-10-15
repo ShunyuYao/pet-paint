@@ -1,18 +1,25 @@
 {
   "name": "pet-paint",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
-  "description": "桌宠颜料大作战：2–4 只桌宠局域网颜料抢地盘的单文件 HTML，支持 2D / 3D 桌宠形象与单人对电脑",
+  "description": "桌宠颜料大作战：2–4 只桌宠局域网 / 互联网中转颜料抢地盘的单文件 HTML，支持 2D / 3D 桌宠形象与单人对电脑",
   "scripts": {
     "build": "node scripts/build.cjs",
     "test:rules": "node --test tests/rules.test.cjs",
     "test:net": "node --test tests/net.test.cjs",
     "test:browser": "node tests/browser-e2e.cjs",
     "test:host": "node tests/host-e2e.cjs",
-    "test": "npm run build && npm run test:rules && npm run test:net && npm run test:browser",
+    "test": "npm run build && npm run test:rules && npm run test:net && npm run test:artifact && npm run test:browser",
     "test:motion": "node tests/host-e2e.cjs --motion-audit",
-    "test:motion-suite": "npm run test:net && npm run test:motion"
+    "test:motion-suite": "npm run test:net && npm run test:motion",
+    "test:artifact": "node --test tests/artifact.test.cjs",
+    "test:relay": "node tests/host-e2e.cjs --relay --four",
+    "test:mixed": "node tests/host-e2e.cjs --mixed --four",
+    "test:internet": "npm run test:artifact && npm run test:relay && npm run test:mixed",
+    "test:delivery": "npm test && npm run test:host && npm run test:internet",
+    "test:physical": "node tests/public-relay.cjs",
+    "test:internet:full": "npm run test:internet && npm run test:physical"
   },
   "engines": {
     "node": ">=22"

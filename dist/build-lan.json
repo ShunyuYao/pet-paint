@@ -1,0 +1,16 @@
+{
+  "file": "dist/桌宠颜料大作战-LAN.html",
+  "bytes": 702684,
+  "sha256": "2db93503acc47377e4db125bcb8507b4ff8b3618b98dd13d0cddcf7351d3e673",
+  "version": "0.2.0",
+  "kitVersion": "0.3.0",
+  "kitManifestSha256": "46c8f77269dfaee956f8c2a8b7a1f6dd53f756aad7f3a14aabb9b417e939b4eb",
+  "protocol": {
+    "id": "pet-paint",
+    "version": 2
+  },
+  "transport": "lan",
+  "esbuild": "0.28.1",
+  "three": "0.164.1",
+  "cannon": "0.20.0"
+}

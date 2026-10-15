@@ -1,7 +1,7 @@
 'use strict';
 // Shared launcher: hidden Electron with the built HTML, CDP page handle, cleanup.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawn}=require('node:child_process');
-const ROOT=path.resolve(__dirname,'..'),REPO=path.resolve(ROOT,'../..');
+const ROOT=path.resolve(__dirname,'..'),REPO=process.env.PAINT_HOST_ROOT||path.resolve(ROOT,'../..');
 const {connect}=require('./cdp.cjs');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function launch({width=960,height=656}={}){

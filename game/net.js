@@ -24,7 +24,7 @@ const Paint=require('./paint.cjs');
 const Arena=require('./arena.cjs');
 const {MATCH,WEAPONS,PLAYER}=require('./config.cjs');
 
-const PROTOCOL={id:'pet-paint',version:1},PURPOSE='paint.profile.v1';
+const PROTOCOL={id:'pet-paint',version:2},PURPOSE='paint.profile.v1';
 const SEND_MS=50,LOBBY_MS=200,MAP_MS=500,HELLO_MS=1000,PING_MS=2000,POLL_GAP=45,STALE_MS=3000,INTERP_MS=150,EXTRAP_MS=100;
 const MAX_EVENTS=320,GUEST_SLOTS=[1,2,3];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -94,7 +94,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
   function startMatch(){
     const hs=humans();roster=Game.fillBots(hs.map(h=>({slot:h.slot,team:h.team,name:h.name,weapon:h.weapon,kind:'human',owner:h.slot===0?'local':'remote',signature:h.signature})),{size:teamSize(hs)});
     clearMotion();waiting=[];Game.setRoster(game,roster);Game.start(game);
-    for(const p of peers.values()){p.ready=false;}prefs.ready=false;autoStartAt=0;
+    for(const p of peers.values()){p.ready=false;p.finalHash=null;}prefs.ready=false;autoStartAt=0;
     onRoster();
   }
   function hostStep(dt,input){
@@ -120,7 +120,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
       waiting:waiting.slice(),a:game.world.actors.map(a=>{const r=a.owner==='remote'&&reports.get(a.slot);return r?Sim.actorState({...a,...r.s,hp:a.hp,alive:a.alive}):Sim.actorState(a);}),mt:Object.fromEntries(game.world.actors.map(a=>[a.slot,a.owner==='remote'&&reports.has(a.slot)?reports.get(a.slot).time:localMotionTime])),acks,ev:JSON.stringify(events),g:gseq,
       hash:m.phase==='results'||m.phase==='judge'?Paint.hash(game.world.paint):undefined,result:m.result||undefined};
   }
-  let lastSt=0,lastMap=0,sendingSt=false;
+  let lastSt=0,lastMap=0,lastFinal=0,finalSnapshot=null,sendingSt=false;
   async function hostPublish(){
     const t=now(),m=game.match,gap=m.phase==='lobby'||m.phase==='results'?LOBBY_MS:SEND_MS;
     if(sendingSt||t-lastSt<gap||closed)return;const list=[...peers.values()].filter(p=>p.slot!==null&&p.online);if(!list.length)return;
@@ -128,6 +128,13 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     try{await send('paint.st',stPayload(),'st','*');}catch(e){if(!TRANSIENT.test(e.message))fail(e);}finally{sendingSt=false;}
     if(m.phase!=='lobby'&&t-lastMap>=MAP_MS){lastMap=t;const chunk=Paint.encodeChunk(game.world.paint,mapChunk);mapChunk=(mapChunk+1)%Paint.CHUNKS;
       send('paint.map',{no:m.no,...chunk},'map','*').catch(e=>{if(!TRANSIENT.test(e.message))fail(e);});}
+    // Latest messages may be lost. Repeat the bounded terminal checkpoint until
+    // every live guest acknowledges the validated hash; never consume avatar quota.
+    if(m.phase==='results'&&m.result&&list.some(p=>p.finalHash!==m.result.hash)&&t-lastFinal>=500){
+      lastFinal=t;
+      if(finalSnapshot?.no!==m.no)finalSnapshot={no:m.no,hash:m.result.hash,data:Paint.encodeFinal(game.world.paint)};
+      send('paint.final',finalSnapshot,'final','*').catch(e=>{if(!TRANSIENT.test(e.message))fail(e);});
+    }
     // Trim the log to what every online guest has acknowledged.
     const minAck=list.length?Math.min(...list.map(p=>p.gack)):gseq;if(log.length&&log[0].g<=minAck-2000)log=log.filter(e=>e.g>minAck-2000);
   }
@@ -189,6 +196,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     if(type==='paint.up'&&p.slot!==null){
       if(Number.isSafeInteger(v.gack))p.gack=Math.max(p.gack,Math.min(v.gack,gseq));
       if(v.no!==game.match.no)return;
+      if(game.match.phase==='results'&&v.finalHash===game.match.result?.hash)p.finalHash=v.finalHash;
       const a=game.world.actors.find(x=>x.slot===p.slot&&x.owner==='remote');
       if(a){const s=Sim.readState(v.s);if(s&&s.slot===p.slot)pushState(p.slot,s,v.mt);}
       let events=[];try{events=JSON.parse(v.ev||'[]');}catch{return;}
@@ -207,6 +215,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
   }
 
   // =========================== GUEST ===========================
+  let finalHash=null;
   let mySlot=null,outbox=[],seq=0,lastG=0,lastSerial=-1,rtt=80,lastHello=0,lastPing=0,sendingUp=false,lastUp=0,sentSignature='',transferJob=null,remote={no:0,ph:'lobby',pt:0,dur:MATCH.defaultDuration,result:null,roster:[],waiting:[],hash:null,at:0};
   let guestUploadAfter=0;
   function guestStep(dt,input){
@@ -226,7 +235,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     if(t-lastPing>=PING_MS){lastPing=t;send('paint.ping',{c:t},'ping').catch(()=>{});}
     if(sendingUp||t-lastUp<SEND_MS)return;lastUp=t;sendingUp=true;
     const me=mySlot!==null?game.world.actors.find(a=>a.slot===mySlot&&a.owner==='local'):null;
-    try{await send('paint.up',{no:remote.no,gack:lastG,s:me?Sim.actorState(me):null,mt:localMotionTime,ev:JSON.stringify(outbox.slice(0,MAX_EVENTS))},'up');}
+    try{await send('paint.up',{no:remote.no,gack:lastG,finalHash,s:me?Sim.actorState(me):null,mt:localMotionTime,ev:JSON.stringify(outbox.slice(0,MAX_EVENTS))},'up');}
     catch(e){if(!TRANSIENT.test(e.message))fail(e);}finally{sendingUp=false;}
   }
   const knownAssets=new Set();function haveSigs(){return knownAssets;}
@@ -235,7 +244,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     Game.setRoster(game,r);onRoster();
   }
   function newMatch(no){
-    remote.no=no;prefs.ready=false;const w=game.world;w.paint=Paint.create();w.projectiles=[];w.ms=0;outbox=[];
+    remote.no=no;finalHash=null;prefs.ready=false;const w=game.world;w.paint=Paint.create();w.projectiles=[];w.ms=0;outbox=[];
     const me=game.world.actors.find(a=>a.slot===mySlot);
     if(me){const sp=Arena.spawnPoint(me.team,me.slot);Object.assign(me,{x:sp.x,z:sp.z,vx:0,vz:0,face:sp.face,ink:PLAYER.inkMax,hp:PLAYER.hp,alive:true});}
     clearMotion();game.feed.length=0;
@@ -252,8 +261,15 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     if(e.type!=='message')return;
     const {type,payload:v}=e.message;if(!v||typeof v!=='object')return;
     if(type==='paint.pong'){if(Number.isInteger(v.slot)&&GUEST_SLOTS.includes(v.slot)&&v.slot!==mySlot){mySlot=v.slot;game.mySlot=mySlot;remote.rosterKey='';}if(Number.isFinite(v.c))rtt=rtt*0.7+Math.max(1,now()-v.c)*0.3;return;}
-    if(type==='paint.map'){if(v.no===remote.no)Paint.mergeChunk(game.world.paint,v);return;}
+    if(type==='paint.final'){
+      if(v.no===remote.no&&remote.ph==='results'&&v.hash===remote.result?.hash&&finalHash!==v.hash&&Paint.applyFinal(game.world.paint,v.data,v.hash)){
+        finalHash=v.hash;game.match.phase='results';
+      }
+      return;
+    }
+    if(type==='paint.map'){if(v.no===remote.no&&finalHash===null)Paint.mergeChunk(game.world.paint,v);return;}
     if(type!=='paint.st')return;
+    if(finalHash!==null&&v.no===remote.no&&v.ph!=='results')return;
     game.mySlot=mySlot??-1;
     if(v.no!==remote.no)newMatch(v.no);
     const rosterKey=JSON.stringify(v.roster);if(rosterKey!==remote.rosterKey){remote.rosterKey=rosterKey;guestRoster(v.roster||[]);}
@@ -336,7 +352,7 @@ function create(sdk,{onRoster=()=>{},onAsset=()=>{},onConnection=()=>{},onError=
     toLobby(){if(!host)return;game.match.phase='lobby';game.match.phaseT=0;Game.setRoster(game,lobbyRoster());onRoster();},
     async leave(){try{await sdk.leave();}finally{end('left');}},
     dispose(){disposed=true;timers.forEach(clearInterval);},
-    diagnostics:()=>({role:context?.role,connection,closed,mySlot:host?0:mySlot,seq,lastG,gseq,outbox:outbox.length,log:log.length,rtt:Math.round(rtt),
+    diagnostics:()=>({role:context?.role,connection,closed,mySlot:host?0:mySlot,finalHash,seq,lastG,gseq,outbox:outbox.length,log:log.length,rtt:Math.round(rtt),
       peers:[...peers.values()].map(p=>({slot:p.slot,online:p.online,lastSeq:p.lastSeq,gack:p.gack,sent:p.sent.size})),recent:recent.slice()}),
   };
 }

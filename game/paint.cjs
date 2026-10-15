@@ -92,6 +92,20 @@ function mergeChunk(g,chunk){
   if(changed){g.dirty=true;g.version++;}
   return changed;
 }
+// Once the referee settles a round, its owner grid is authoritative. Provisional
+// local timestamps cannot override it. Validate every byte and the digest before
+// replacing any cell; regular in-match chunks keep their last-writer-wins rule.
+function encodeFinal(g){return toBase64(Uint8Array.from(g.team,t=>t+1));}
+function applyFinal(g,data,expectedHash){
+  if(typeof data!=='string'||data.length!==Math.ceil(N/3)*4||!Number.isInteger(expectedHash))return false;
+  let bytes;try{bytes=fromBase64(data);}catch{return false;}if(bytes.length!==N)return false;
+  const candidate=create();for(let i=0;i<N;i++){
+    const t=bytes[i]-1;if(t<-1||t>1||CLASS[i]===1&&t!==-1||CLASS[i]>=2&&t!==CLASS[i]-2)return false;
+    candidate.team[i]=t;
+  }
+  if(hash(candidate)!==expectedHash)return false;
+  g.team.set(candidate.team);g.stamp.fill(0);g.dirty=true;g.version++;return true;
+}
 function toBase64(bytes){
   if(typeof Buffer!=='undefined')return Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength).toString('base64');
   let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);
@@ -101,4 +115,4 @@ function fromBase64(str){
   const s=atob(str),b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b;
 }
 
-module.exports={COLS,ROWS,CELL,N,X0,Z0,CLASS,PAINTABLE,CHUNKS,create,apply,cellAt,teamAt,coverage,hash,encodeChunk,mergeChunk,stampOf,blobEdge};
+module.exports={COLS,ROWS,CELL,N,X0,Z0,CLASS,PAINTABLE,CHUNKS,create,apply,cellAt,teamAt,coverage,hash,encodeChunk,mergeChunk,encodeFinal,applyFinal,stampOf,blobEdge};

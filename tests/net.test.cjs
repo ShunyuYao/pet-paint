@@ -96,3 +96,22 @@ test('a guest leaving mid-match is taken over by a computer player; the host lea
 });
 
 async function waitFor(fn,label,ms=5000){const until=Date.now()+ms;while(Date.now()<until){if(fn())return;await sleep(30);}throw Error('timeout: '+label);}
+
+// A terminal state can overtake missed live paint. Results must repair the actual
+// grid, not merely show the host's score card while the floor remains different.
+test('missed live snapshots and map packets recover the exact terminal grid',{timeout:30000},async()=>{
+ let checkpoints=0;
+ const hub=createHub({latency:[5,15],dropMessage:m=>m.type==='paint.final'?checkpoints++===0:m.type==='paint.map'||m.type==='paint.st'&&['play','judge'].includes(m.payload.ph)});
+ const H=player(hub.host(),'terminal-host'),A=player(hub.guest(),'terminal-guest');
+ try{
+  await H.start();await A.start();await waitFor(()=>H.lan.lobby().players.length===2,'terminal lobby');
+  H.lan.setReady(true);A.lan.setReady(true);
+  await waitFor(()=>H.lan.phase()==='play','host plays despite missing guest state',7000);
+  await waitFor(()=>H.lan.phase()==='results'&&A.lan.phase()==='results','terminal results',18000);
+  assert(hub.stats.dropped>0);assert(H.lan.result().share[0]+H.lan.result().share[1]>1);
+  await waitFor(()=>Paint.hash(A.lan.game.world.paint)===H.lan.result().hash,'terminal grid agrees with authoritative score',1500);
+  await waitFor(()=>A.lan.diagnostics().finalHash===H.lan.result().hash,'checkpoint validated and acknowledged');await sleep(200);
+  const acknowledged=checkpoints,snapshot=Paint.hash(A.lan.game.world.paint);await sleep(700);assert.equal(Paint.hash(A.lan.game.world.paint),snapshot,'late packet cannot change settled grid');assert.equal(checkpoints,acknowledged,'stop resending after the guest acknowledges the terminal hash');assert(checkpoints>=2,'first dropped checkpoint is retried');
+  assert.deepEqual(H.errors,[]);assert.deepEqual(A.errors,[]);
+ }finally{H.stop();A.stop();}
+});
